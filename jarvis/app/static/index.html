@@ -509,7 +509,11 @@
     async function startSession() {
       setLive(true, 'Connecting…');
       const voiceName = VOICES[selectedVoice];
-      ws = new WebSocket(`ws://localhost:8000/ws/${selectedAgent}/${userId}?voice=${voiceName}`);
+      // Build WebSocket URL relative to the current page so deployed apps
+      // connect back to the correct host and use `wss` when the page is https.
+      const wsScheme = (location.protocol === 'https:') ? 'wss' : 'ws';
+      const wsHost = location.host;
+      ws = new WebSocket(`${wsScheme}://${wsHost}/ws/${selectedAgent}/${userId}?voice=${voiceName}`);
       ws.binaryType = 'arraybuffer';
 
       ws.onmessage = ({ data }) => {
