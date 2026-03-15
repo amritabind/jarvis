@@ -27,7 +27,8 @@ COPY --from=builder /root/.local /root/.local
 
 # Copy application code
 COPY app/ ./app/
-COPY .env .env.example ./
+# Copy example env into a runtime .env inside the image (do not require a repo .env)
+COPY .env.example .env
 COPY requirements.txt .
 
 # Set environment variables
