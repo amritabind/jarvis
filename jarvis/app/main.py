@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.websockets import WebSocketDisconnect
 from google.genai import types
-from google.genai.types import Blob, Content, Part, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
+from google.genai.types import Blob, Content, Part, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, AudioTranscriptionConfig
 
 from google.adk.runners import Runner
 from google.adk.agents import LiveRequestQueue
@@ -82,6 +82,8 @@ async def websocket_endpoint(websocket: WebSocket, agent_type: str, user_id: str
                 prebuilt_voice_config=PrebuiltVoiceConfig(voice_name=voice)
             )
         ),
+        input_audio_transcription=AudioTranscriptionConfig(),
+        output_audio_transcription=AudioTranscriptionConfig(),
     )
 
     # Fresh queue for this session
@@ -135,6 +137,13 @@ async def websocket_endpoint(websocket: WebSocket, agent_type: str, user_id: str
                     await websocket.send_text(json.dumps({
                         "type": "transcript",
                         "data": event.output_transcription.text
+                    }))
+
+                # User speech transcript
+                if event.input_transcription and event.input_transcription.text:
+                    await websocket.send_text(json.dumps({
+                        "type": "user_transcript",
+                        "data": event.input_transcription.text
                     }))
 
                 part = event.content and event.content.parts and event.content.parts[0]
