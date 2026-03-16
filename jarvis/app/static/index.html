@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SkillUp — Adaptive Learning</title>
+  <title>Skillup — Adaptive Learning</title>
   <style>
     :root {
       --bg:           #07090f;
@@ -193,14 +193,19 @@
     }
     .msg.ai   .avatar { background: var(--accent-dim); color: #60a5fa; }
     .msg.sys  .avatar { background: transparent; color: var(--muted); font-size: 1rem; }
+    .msg.user { flex-direction: row-reverse; }
+    .msg.user .avatar { background: rgba(139,92,246,0.2); color: #a78bfa; }
     .bubble {
       border-radius: 4px 12px 12px 12px;
       padding: 8px 12px; font-size: 0.86rem; line-height: 1.55;
       max-width: calc(100% - 38px);
     }
+    .msg.user .bubble { border-radius: 12px 4px 12px 12px; background: rgba(139,92,246,0.15); color: var(--text); }
     .msg.ai  .bubble { background: rgba(30,58,138,0.35); color: var(--text); }
     .msg.sys .bubble { background: transparent; color: var(--muted); font-size: 0.78rem; font-style: italic; padding: 0; }
     .msg.err .bubble { background: rgba(239,68,68,0.12); color: #fca5a5; }
+    .bubble.streaming::after { content: '▍'; animation: caret 0.8s ease-in-out infinite; margin-left: 2px; }
+    @keyframes caret { 0%,100%{opacity:1} 50%{opacity:0} }
 
     /* Typing dots */
     #typingRow { display: none; }
@@ -332,7 +337,7 @@
 <body>
 
   <div class="header">
-    <div class="logo">SkillUp</div>
+    <div class="logo">Skillup</div>
     <p class="tagline">Adaptive learning — 5 minutes at a time, anywhere</p>
   </div>
 
@@ -477,6 +482,8 @@
     let ws, micCtx, mediaStream, cameraStream, processor, analyser, playCtx, nextPlay = 0, animId;
     let selectedAgent = 'coach', isLive = false, inlineEl = null;
     let selectedVoice = 'female', playbackSpeed = 1.0;
+    let dropping = false, activeSources = [];
+    let aiLiveEl = null, userLiveEl = null;  // streaming transcript bubbles
 
     /* ── Voice / Speed ───────────────────────────── */
     const VOICES = {
@@ -520,10 +527,11 @@
         const msg = JSON.parse(data);
         hideTyping();
         if (msg.type === 'audio')   { playAudio(msg); }
-        if (msg.type === 'transcript') { addMsg(msg.data, 'ai'); }
+        if (msg.type === 'transcript')      { appendLive(msg.data, 'ai'); }
+        if (msg.type === 'user_transcript') { appendLive(msg.data, 'user'); }
         if (msg.type === 'text')    { addInline(msg.data); }
-        if (msg.type === 'interrupted') { resetPlayback(); }
-        if (msg.type === 'turn_complete') { inlineEl = null; }
+        if (msg.type === 'interrupted') { dropping = true; resetPlayback(); finalizeUserBubble(); finalizeAiBubble(true); }
+        if (msg.type === 'turn_complete') { dropping = false; inlineEl = null; finalizeAiBubble(false); finalizeUserBubble(); }
         if (msg.type === 'error')   { addMsg('⚠️ ' + msg.data, 'err'); }
       };
 
@@ -569,6 +577,10 @@
     function stopSession() { if (ws) ws.close(); cleanup(); }
 
     function cleanup() {
+      dropping = false;
+      activeSources.forEach(s => { try { s.stop(0); } catch(_) {} });
+      activeSources = [];
+      aiLiveEl = null; userLiveEl = null;
       if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; document.getElementById('webcam').srcObject = null; }
       if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
       if (processor)  { processor.disconnect(); processor = null; }
@@ -603,21 +615,45 @@
     }
 
     /* ── Transcript ──────────────────────────────── */
-    function addMsg(text, cls) {
+    function makeBubble(cls) {
       rmEmpty();
       const wrap = document.createElement('div');
       wrap.className = 'msg ' + cls;
       const av = document.createElement('div');
       av.className = 'avatar';
-      av.textContent = cls === 'ai' ? 'AI' : '·';
+      av.textContent = cls === 'ai' ? 'AI' : cls === 'user' ? 'You' : '·';
       const bl = document.createElement('div');
       bl.className = 'bubble';
-      bl.textContent = text;
       wrap.appendChild(av); wrap.appendChild(bl);
       const box = document.getElementById('tbody');
-      const typing = document.getElementById('typingRow');
-      box.insertBefore(wrap, typing);
-      inlineEl = null; scrollT();
+      box.insertBefore(wrap, document.getElementById('typingRow'));
+      scrollT();
+      return bl;
+    }
+    function appendLive(text, cls) {
+      if (cls === 'ai') {
+        if (!aiLiveEl) { aiLiveEl = makeBubble('ai'); aiLiveEl.classList.add('streaming'); }
+        aiLiveEl.textContent += text;
+      } else {
+        if (!userLiveEl) { userLiveEl = makeBubble('user'); userLiveEl.classList.add('streaming'); }
+        userLiveEl.textContent += text;
+      }
+      scrollT();
+    }
+    function finalizeAiBubble(interrupted) {
+      if (aiLiveEl) {
+        aiLiveEl.classList.remove('streaming');
+        if (interrupted && aiLiveEl.textContent) aiLiveEl.textContent += ' ✂';
+        aiLiveEl = null;
+      }
+    }
+    function finalizeUserBubble() {
+      if (userLiveEl) { userLiveEl.classList.remove('streaming'); userLiveEl = null; }
+    }
+    function addMsg(text, cls) {
+      const bl = makeBubble(cls);
+      bl.textContent = text;
+      inlineEl = null;
     }
     function addInline(text) {
       rmEmpty();
@@ -649,7 +685,7 @@
           <div class="typing"><span></span><span></span><span></span></div>
         </div>
         <p class="t-empty" id="tEmpty">Your session will appear here…</p>`;
-      inlineEl = null;
+      inlineEl = null; aiLiveEl = null; userLiveEl = null;
     }
 
     /* ── Waveform ───────────────────────────────── */
@@ -681,10 +717,14 @@
 
     /* ── Audio playback ───────────────────────────── */
     function resetPlayback() {
-      if (playCtx) playCtx.close();
+      // Immediately stop every scheduled source before closing the context
+      activeSources.forEach(s => { try { s.stop(0); } catch(_) {} });
+      activeSources = [];
+      if (playCtx) { playCtx.close(); }
       playCtx = null; nextPlay = 0;
     }
     function playAudio({ data, mime }) {
+      if (dropping) return;   // discard stale chunks from the interrupted turn
       if (!playCtx || playCtx.state === 'closed') {
         playCtx = new AudioContext({ sampleRate: 24000 });
         nextPlay = 0;
@@ -702,6 +742,8 @@
       src.connect(playCtx.destination);
       const at = Math.max(playCtx.currentTime + 0.02, nextPlay);
       src.start(at);
+      activeSources.push(src);
+      src.onended = () => { activeSources = activeSources.filter(s2 => s2 !== src); };
       nextPlay = at + buf.duration / playbackSpeed;
     }
 
